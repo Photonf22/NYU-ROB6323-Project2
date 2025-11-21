@@ -482,7 +482,7 @@ Now, reimplement the logic from the reference code using Isaac Lab's API.
 
 **Key Correspondences:**
 *   `self.foot_indices` (Gait Phase) -> You already computed this in `_step_contact_targets`.
-*   `foot_height` -> Use `self.foot_positions_w` (which uses `_feet_ids_robot`).
+*   `foot_height` -> Use `self.foot_positions_w` (which uses `_feet_ids`).
 *   `self.contact_forces` -> Use `self._contact_sensor.data.net_forces_w`. **Important:** Index this using `self._feet_ids_sensor`.
 
 By following these steps, you have transformed a simple environment into a research-grade locomotion setup capable of learning robust walking gaits!
