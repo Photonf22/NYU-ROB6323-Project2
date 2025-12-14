@@ -80,13 +80,20 @@ class Rob6323Go2Env(DirectRLEnv):
             for key in [
                 "track_lin_vel_xy_exp",
                 "track_ang_vel_z_exp",
-                "rew_action_rate",     # <--- Added
-                "raibert_heuristic",    # <--- Added
+                "rew_action_rate",
+                "raibert_heuristic",
+                "orient",
+                "lin_vel_z",
+                "dof_vel",
+                "ang_vel_xy",
+                "feet_clearance",
+                "tracking_contacts_shaped_force",
             ]
         }
         self.contact_forces = self._contact_sensor.data.net_forces_w[:, self._feet_ids_sensor]
         # Get specific body indices
-        self._base_id, _ = self._contact_sensor.find_bodies("base")
+        _base_id, _ = self._contact_sensor.find_bodies("base")
+        self._base_id = _base_id[0]
         # self._feet_ids, _ = self._contact_sensor.find_bodies(".*foot")
         # self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*thigh")
         
@@ -175,6 +182,13 @@ class Rob6323Go2Env(DirectRLEnv):
     def _get_rewards(self) -> torch.Tensor:
         self._step_contact_targets() # Update gait state
         rew_raibert_heuristic = self._reward_raibert_heuristic()
+        
+        # Foot clearance: encourage feet to lift during swing phase.
+        # Use desired_contact_states as a soft stance probability in [0,1].
+        # Swing mask: 1 - stance_prob
+        stance_prob = self.desired_contact_states  # (num_envs, 4)
+        swing_prob = 1.0 - stance_prob
+        target_clearance = 0.06 # can be tuned added TODO: Alejandro Sanchez
         # action rate penalization
         # First derivative (Current - Last)
         rew_action_rate = torch.sum(torch.square(self._actions - self.last_actions[:, :, 0]), dim=1) * (self.cfg.action_scale ** 2)
@@ -204,25 +218,38 @@ class Rob6323Go2Env(DirectRLEnv):
 
         # 3. Penalize high joint velocities
         # Hint: Sum the squares of all joint velocities.
-        self.rew_dof_vel = self.robot.data.joint_vel[:, 0]**2 + self.robot.data.joint_vel[:, 1]**2 + self.robot.data.joint_vel[:, 2]**2
+        #self.rew_dof_vel = self.robot.data.joint_vel[:, 0]**2 + self.robot.data.joint_vel[:, 1]**2 + self.robot.data.joint_vel[:, 2]**2
+        self.rew_dof_vel = torch.sum(torch.square(self.robot.data.joint_vel), dim=1)
 
         # 4. Penalize angular velocity in XY plane (roll/pitch)
         # Hint: Sum the squares of the X and Y components of the base angular velocity.
         self.rew_ang_vel_xy = self.robot.data.root_ang_vel_b[:,0]** 2 + self.robot.data.root_ang_vel_b[:,1]**2
 
+        # Contact shaping force: reward matching contacts to stance/swing plan using contact sensor net forces.
+        # IMPORTANT: Index sensor data with _feet_ids_sensor (sensor indexing), not _feet_ids.
         forces_w = self._contact_sensor.data.net_forces_w  # (N, bodies, 3)
-        feet_forces = forces_w[:, self._feet_ids_sensor, :]  # (N, 4, 3)
-        fz = feet_forces[..., 2].clamp(min=0.0)  # normal component (N, 4)  feet forces in z axis
+        feet_forces_w = forces_w[:, self._feet_ids_sensor, :]  # (N, 4, 3)
+        # Use vertical force as a proxy for "in contact". Clamp to avoid negative vertical.
+        fz = torch.clamp(feet_forces_w[..., 2], min=0.0)  # (num_envs, 4)
+        # Smooth shaping: convert forces into [0,1] via tanh scaling
+        # Force scale (Newtons) is a tuning knob.
+        fz_scaled = torch.tanh(fz / 50.0)
+        # Reward stance having force, and swing having low force.
+        # Using soft stance_prob/swing_prob keeps it differentiable-ish and matches your von-mises smoothing.
+        rew_tracking_contacts_shaped_force = torch.sum(
+            stance_prob * fz_scaled - swing_prob * fz_scaled,
+            dim=1
+        )  # (num_envs,)
+
         # want high force when stance, low when swing
         stance = self.desired_contact_states  # (N, 4)
         self.rew_contact = torch.sum(stance * torch.tanh(fz / 50.0) - (1.0 - stance) * torch.tanh(fz / 50.0), dim=1)
         # Part 6 Advanced setup
         foot_z = self.foot_positions_w # self.robot.data.body_pos_w[:, self._feet_ids]
-        swing = 1.0 - self.desired_contact_states  # (N, 4)
         target_clearance = 0.06  # meters
-        clearance_err = (foot_z - target_clearance) ** 2
 
-        rew_feet_clearance = torch.sum(swing * clearance_err, dim=1)  # (N,)
+        rew_feet_clearance = torch.sum(swing_prob * torch.square(foot_z - target_clearance), dim=1)  # (num_envs,)
+
 
         # Add to rewards dict
         rewards = {
@@ -236,8 +263,9 @@ class Rob6323Go2Env(DirectRLEnv):
             "lin_vel_z": self.rew_lin_vel_z * self.cfg.lin_vel_z_reward_scale,
             "dof_vel": self.rew_dof_vel * self.cfg.dof_vel_reward_scale,
             "ang_vel_xy": self.rew_ang_vel_xy * self.cfg.ang_vel_xy_reward_scale,
-            "fz" : self.fz,       
-            "rew_contact": self.rew_contact,
+            # Part 6.3 (new)
+            "feet_clearance": rew_feet_clearance * self.cfg.feet_clearance_reward_scale,
+            "tracking_contacts_shaped_force": rew_tracking_contacts_shaped_force * self.cfg.tracking_contacts_shaped_force_reward_scale,
         }
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
@@ -251,8 +279,17 @@ class Rob6323Go2Env(DirectRLEnv):
         cstr_base_height_min = base_height < self.cfg.base_height_min
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history[self._feet_ids_sensor]
+        #net_contact_forces = self._contact_sensor.data.net_forces_w_history[self._feet_ids_sensor]
         # confirm tensor shape...
+        # terminate if the BASE is in contact with the ground (or anything) above threshold
+        # NOTE: net_forces_w is indexed by CONTACT SENSOR body indices -> use self._base_id from sensor indexing.
+        forces_w = self._contact_sensor.data.net_forces_w  # expected shape: (num_envs, num_bodies_in_sensor, 3)
+        base_force_w = forces_w[:, self._base_id, :]       # (num_envs, 3)
+        base_force_norm = torch.linalg.norm(base_force_w, dim=-1)  # (num_envs,)
+        # threshold in Newtons (tune if needed; 1.0 is very small, but keep your original)
+        cstr_termination_contacts = base_force_norm > 1.0
+        # upside down (your original logic)
+        cstr_upsidedown = self.robot.data.projected_gravity_b[:, 2] > 0
         print("this is the tensor shape of self._contact_sensor.data.net_forces_w_history")
         print(self._contact_sensor.data.net_forces_w_history.shape)
 
@@ -260,9 +297,10 @@ class Rob6323Go2Env(DirectRLEnv):
         print(self._contact_sensor.data.net_forces_w.shape)
         # TODO: (Alejandro, Sanchez) 12/14/25
         #net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, self._feet_ids_sensor, :]    # changed to this will test if correct
-        cstr_termination_contacts = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
-        cstr_upsidedown = self.robot.data.projected_gravity_b[:, 2] > 0
+        #cstr_termination_contacts = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
+        #cstr_upsidedown = self.robot.data.projected_gravity_b[:, 2] > 0
         # apply all terminations
+        #died = cstr_termination_contacts | cstr_upsidedown | cstr_base_height_min
         died = cstr_termination_contacts | cstr_upsidedown | cstr_base_height_min
         return died, time_out
 
