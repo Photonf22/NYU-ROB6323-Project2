@@ -90,7 +90,7 @@ class Rob6323Go2Env(DirectRLEnv):
                 "tracking_contacts_shaped_force",
             ]
         }
-        self.contact_forces = self._contact_sensor.data.net_forces_w[:, self._feet_ids_sensor]
+        self.contact_forces = self._contact_sensor.data.net_forces_w[:, self._feet_ids_sensor,:]
         # Get specific body indices
         _base_id, _ = self._contact_sensor.find_bodies("base")
         self._base_id = _base_id[0]
@@ -180,6 +180,11 @@ class Rob6323Go2Env(DirectRLEnv):
     # 4.6 Integrate into Observations and Rewards
     # Finally, expose the clock inputs to the policy and add the reward term.
     def _get_rewards(self) -> torch.Tensor:
+        print("feet_ids_sensor:", self._feet_ids_sensor)
+        print("max feet id:", max(self._feet_ids_sensor))
+        print("num sensor bodies:", self._contact_sensor.data.net_forces_w.shape[1])
+        print("base_id:", self._base_id)
+
         self._step_contact_targets() # Update gait state
         rew_raibert_heuristic = self._reward_raibert_heuristic()
         
@@ -227,12 +232,18 @@ class Rob6323Go2Env(DirectRLEnv):
 
         # Contact shaping force: reward matching contacts to stance/swing plan using contact sensor net forces.
         # IMPORTANT: Index sensor data with _feet_ids_sensor (sensor indexing), not _feet_ids.
-        forces_w = self._contact_sensor.data.net_forces_w  # (N, bodies, 3)
-        feet_forces_w = forces_w[:, self._feet_ids_sensor, :]  # (N, 4, 3)
+        #forces_w = self._contact_sensor.data.[:, body_ids, :]              # (N, K, 3)  # (N, bodies, 3)
+        forces_hist = self._contact_sensor.data.net_forces_w_history          # (N, H, B, 3)
+        feet_forces_hist = forces_hist[:, :, self._feet_ids_sensor, :]        # (N, H, 4, 3)
+        self.contact_forces = self._contact_sensor.data.net_forces_w_history[:,self._feet_ids_sensor]
         # Use vertical force as a proxy for "in contact". Clamp to avoid negative vertical.
-        fz = torch.clamp(feet_forces_w, min=0.0)  # (num_envs, 4)
+        fz_hist = torch.clamp(feet_forces_hist[..., 2], min=0.0)              # (N, H, 4)
+        print(fz_hist)
         # Smooth shaping: convert forces into [0,1] via tanh scaling
         # Force scale (Newtons) is a tuning knob.
+        fz = torch.mean(fz_hist, dim=1)   # (N, 4) smoother
+        print("output of fz")
+        print(fz)
         fz_scaled = torch.tanh(fz / 50.0)
         # Reward stance having force, and swing having low force.
         # Using soft stance_prob/swing_prob keeps it differentiable-ish and matches your von-mises smoothing.
@@ -278,28 +289,25 @@ class Rob6323Go2Env(DirectRLEnv):
         cstr_base_height_min = base_height < self.cfg.base_height_min
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        #net_contact_forces = self._contact_sensor.data.net_forces_w_history[self._feet_ids_sensor]
-        # confirm tensor shape...
-        # terminate if the BASE is in contact with the ground (or anything) above threshold
-        # NOTE: net_forces_w is indexed by CONTACT SENSOR body indices -> use self._base_id from sensor indexing.
-        forces_w = self._contact_sensor.data.net_forces_w  # expected shape: (num_envs, num_bodies_in_sensor, 3)
-        base_force_w = forces_w[:, self._base_id, :]       # (num_envs, 3)
-        base_force_norm = torch.linalg.norm(base_force_w, dim=-1)  # (num_envs,)
-        # threshold in Newtons (tune if needed; 1.0 is very small, but keep your original)
-        cstr_termination_contacts = base_force_norm > 1.0
+        
+        #net_contact_forces = self._contact_sensor.data.net_forces_w_history#[self._feet_ids_sensor]
+        #cstr_termination_contacts = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
+        # Base contact termination using CONTACT SENSOR history
+        # net_forces_w_history shape: (N, H, B, 3)
+        forces_hist = self._contact_sensor.data.net_forces_w_history  # (N, H, B, 3)
+
+        # base_id is a single scalar sensor-body index
+        base_forces_hist = forces_hist[:, :, self._base_id, :]         # (N, H, 3)
+        base_force_norm_hist = torch.linalg.norm(base_forces_hist, dim=-1)  # (N, H)
+
+        # robust impact detection: max over history window
+        base_force_max = torch.amax(base_force_norm_hist, dim=1)       # (N,)
+
+        # threshold (Newtons) — you can tune this; 1.0 is very sensitive
+        cstr_termination_contacts = base_force_max > 1.0
         # upside down (your original logic)
         cstr_upsidedown = self.robot.data.projected_gravity_b[:, 2] > 0
-        print("this is the tensor shape of self._contact_sensor.data.net_forces_w_history")
-        print(self._contact_sensor.data.net_forces_w_history.shape)
 
-        print("this is the tensor shape of self._contact_sensor.data.net_forces_w")
-        print(self._contact_sensor.data.net_forces_w.shape)
-        # TODO: (Alejandro, Sanchez) 12/14/25
-        #net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, self._feet_ids_sensor, :]    # changed to this will test if correct
-        #cstr_termination_contacts = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
-        #cstr_upsidedown = self.robot.data.projected_gravity_b[:, 2] > 0
-        # apply all terminations
-        #died = cstr_termination_contacts | cstr_upsidedown | cstr_base_height_min
         died = cstr_termination_contacts | cstr_upsidedown | cstr_base_height_min
         return died, time_out
 
