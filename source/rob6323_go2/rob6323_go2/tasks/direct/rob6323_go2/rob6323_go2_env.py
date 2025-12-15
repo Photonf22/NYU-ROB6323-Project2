@@ -230,7 +230,7 @@ class Rob6323Go2Env(DirectRLEnv):
         forces_w = self._contact_sensor.data.net_forces_w  # (N, bodies, 3)
         feet_forces_w = forces_w[:, self._feet_ids_sensor, :]  # (N, 4, 3)
         # Use vertical force as a proxy for "in contact". Clamp to avoid negative vertical.
-        fz = torch.clamp(feet_forces_w[..., 2], min=0.0)  # (num_envs, 4)
+        fz = torch.clamp(feet_forces_w, min=0.0)  # (num_envs, 4)
         # Smooth shaping: convert forces into [0,1] via tanh scaling
         # Force scale (Newtons) is a tuning knob.
         fz_scaled = torch.tanh(fz / 50.0)
@@ -245,11 +245,10 @@ class Rob6323Go2Env(DirectRLEnv):
         stance = self.desired_contact_states  # (N, 4)
         self.rew_contact = torch.sum(stance * torch.tanh(fz / 50.0) - (1.0 - stance) * torch.tanh(fz / 50.0), dim=1)
         # Part 6 Advanced setup
-        foot_z = self.foot_positions_w # self.robot.data.body_pos_w[:, self._feet_ids]
+        foot_height = self.foot_positions_w[:, :, 2] # self.robot.data.body_pos_w[:, self._feet_ids]
         target_clearance = 0.06  # meters
 
-        rew_feet_clearance = torch.sum(swing_prob * torch.square(foot_z - target_clearance), dim=1)  # (num_envs,)
-
+        rew_feet_clearance = torch.sum(swing_prob * (foot_z - target_clearance).pow(2), dim=1)  # (N,)
 
         # Add to rewards dict
         rewards = {
