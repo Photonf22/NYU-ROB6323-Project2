@@ -65,8 +65,8 @@ class Rob6323Go2Env(DirectRLEnv):
                 "lin_vel_z",
                 "dof_vel",
                 "ang_vel_xy",
-                #"feet_clearance",
-                #"tracking_contacts_shaped_force",
+                "feet_clearance",
+                "tracking_contacts_shaped_force",
             ]
         }
         # Variables needed for the raibert heuristic
