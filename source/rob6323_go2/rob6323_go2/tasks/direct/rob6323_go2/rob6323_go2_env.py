@@ -80,7 +80,9 @@ class Rob6323Go2Env(DirectRLEnv):
         self.motor_offsets = torch.zeros(self.num_envs, 12, device=self.device)
         self.torque_limits = cfg.torque_limits
         # Get specific body indices
-        self._base_id, _ = self._contact_sensor.find_bodies("base")
+        #self._base_id, _ = self._contact_sensor.find_bodies("base")
+        base_ids, _ = self._contact_sensor.find_bodies("base")
+        self._base_id = base_ids[0]
         # variables needed for action rate penalization
         # Shape: (num_envs, action_dim, history_length)
         self.last_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), 3, dtype=torch.float, device=self.device, requires_grad=False)
@@ -206,17 +208,32 @@ class Rob6323Go2Env(DirectRLEnv):
         stance_prob = self.desired_contact_states  # (num_envs, 4)
         #stance_prob = 1.0 - self._contact_sensor.data.is_contact[:, self.feet_indices].float()
         swing_prob = 1.0 - stance_prob
-        target_clearance = 0.12 # can be tuned added TODO: Alejandro Sanchez
+        # TODO:(Alejandro, Sanchez) 12/16/2025 lowered value from 0.06 and will adjust since 0.06 was not working well 
+        # start with target_clearance = 0.05–0.07
+        target_clearance = 0.06 # can be tuned added TODO: Alejandro Sanchez <------ changed from this (before edit)
         foot_height = self.foot_positions_w[:, :, 2]
 
         rew_feet_clearance = torch.sum(swing_prob * (foot_height - target_clearance).pow(2), dim=1)  # (N,)
 
+        # TODO:(Alejandro, Sanchez) 12/16/2025 Applying a patch
+        # hardening contact shaping block against NaNs and indexing
+        # replacing torch.tang portion with the following in codeline 227
+        #forces_hist = self._contact_sensor.data.net_forces_w_history          # (N, H, B, 3)
+        #feet_forces_hist = forces_hist[:, :, self._feet_ids_sensor, :]        # (N, H, 4, 3)
+        #fz_hist = torch.clamp(feet_forces_hist[..., 2], min=0.0)              # (N, H, 4)
+        #fz = torch.mean(fz_hist, dim=1)   # (N, 4) smoother
+        #fz_scaled = torch.tanh(fz / 50.0)
+        # (NEW) replacement for the above
+        forces_hist = self._contact_sensor.data.net_forces_w_history          # (N,H,B,3)
+        feet_ids = list(self._feet_ids_sensor)                               # ensure safe indexing
+        feet_forces_hist = forces_hist[:, :, feet_ids, :]                    # (N,H,4,3)
+        fz_hist = torch.clamp(feet_forces_hist[..., 2], min=0.0)             # (N,H,4)
 
-        forces_hist = self._contact_sensor.data.net_forces_w_history          # (N, H, B, 3)
-        feet_forces_hist = forces_hist[:, :, self._feet_ids_sensor, :]        # (N, H, 4, 3)
-        fz_hist = torch.clamp(feet_forces_hist[..., 2], min=0.0)              # (N, H, 4)
-        fz = torch.mean(fz_hist, dim=1)   # (N, 4) smoother
-        fz_scaled = torch.tanh(fz / 50.0)
+        fz = torch.mean(fz_hist, dim=1)                                      # (N,4)
+        fz = torch.nan_to_num(fz, nan=0.0, posinf=0.0, neginf=0.0)          # avoid CUDA asserts
+        #If instability is seen, increase the divisor from 50 -> 100 to soften it
+        fz_scaled = torch.tanh(fz / 50.0)                                   
+
         # Reward stance having force, and swing having low force.
         # Using soft stance_prob/swing_prob keeps it differentiable-ish and matches your von-mises smoothing.
         rew_tracking_contacts_shaped_force = torch.sum(
@@ -250,7 +267,14 @@ class Rob6323Go2Env(DirectRLEnv):
         cstr_base_height_min = base_height < self.cfg.base_height_min
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        cstr_termination_contacts = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
+        # TODO: (Alejandro, Sanchez ) 12/16/2025 check if the following fixes the stationary robot (history max base force)
+        # changing from line 259 to 261
+        #cstr_termination_contacts = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
+        #forces_hist = self._contact_sensor.data.net_forces_w_history  # (N,H,B,3)
+        base_forces = net_contact_forces[:, :, self._base_id, :]             # (N,H,3)
+        base_norm   = torch.linalg.norm(base_forces, dim=-1)          # (N,H)
+        base_max    = torch.amax(base_norm, dim=1)                    # (N,)
+        cstr_termination_contacts = base_max > 1.0
         cstr_upsidedown = self.robot.data.projected_gravity_b[:, 2] > 0
         # apply all terminations
         died = cstr_termination_contacts | cstr_upsidedown | cstr_base_height_min

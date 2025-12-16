@@ -33,7 +33,8 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     observation_space = 48 + 4  #Define the reward scales and increase observation space to include clock inputs (4 phases).
     raibert_heuristic_reward_scale = -10.0
     # 6.1 Update Configuration line 36 and line 37
-    feet_clearance_reward_scale = -30.0
+    # TODO:(Alejandro, Sanchez) 12/16/2025 lowering the reward scale from -30.0 to -5.0 to start with
+    feet_clearance_reward_scale = -5.0
     tracking_contacts_shaped_force_reward_scale = 4.0
     state_space = 0
     debug_vis = True
@@ -47,7 +48,13 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     # In Rob6323Go2EnvCfg
     base_height_min = 0.20  # Terminate if base is lower than 20cm
     # reward scales
-    action_rate_reward_scale = -0.1
+    # TODO:(Alejandro, Sanchez) 12/16/2025 Lower this value action_rate_reward_scale up to but no lower than -0.001 and then adjust
+    # If the action rate is too strong then the following will happen:
+    # sluggish response to commands
+    # poor steady-state tracking (losing 10 pts)
+    # gait looks “stuck” or overly damped
+    # action_rate_reward_scale = -0.1 <------ changed from this (before edit)
+    action_rate_reward_scale = -0.01        
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 200,
