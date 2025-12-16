@@ -178,11 +178,6 @@ class Rob6323Go2Env(DirectRLEnv):
         # 1. Penalize non-vertical orientation (projected gravity on XY plane)
         # Hint: We want the robot to stay upright, so gravity should only project onto Z.
         # Calculate the sum of squares of the X and Y components of projected_gravity_b.
-        print("printing shape")
-        print(self.robot.data.projected_gravity_b.shape)
-        print("rew_orient")
-        print(torch.sum( self.robot.data.projected_gravity_b[:,:2] ** 2, dim=1))
-        #self.rew_orient = torch.sum(torch.square(self.robot.data.projected_gravity_b[:,1] - self.robot.data.projected_gravity_b[:,0]), dim=1)
         self.rew_orient = torch.sum( self.robot.data.projected_gravity_b[:,:2] ** 2, dim=1)
 
         # 2. Penalize vertical velocity (z-component of base linear velocity)
@@ -196,6 +191,30 @@ class Rob6323Go2Env(DirectRLEnv):
         # 4. Penalize angular velocity in XY plane (roll/pitch)
         # Hint: Sum the squares of the X and Y components of the base angular velocity.
         self.rew_ang_vel_xy = torch.sum( self.robot.data.root_ang_vel_b[:, :2] ** 2, dim=1)
+        # part 6
+                # Foot clearance: encourage feet to lift during swing phase.
+        # Use desired_contact_states as a soft stance probability in [0,1].
+        # Swing mask: 1 - stance_prob
+        stance_prob = self.desired_contact_states  # (num_envs, 4)
+        swing_prob = 1.0 - stance_prob
+        target_clearance = 0.06 # can be tuned added TODO: Alejandro Sanchez
+        foot_height = foot_height = self.foot_positions_w[:, :, 2]
+
+        rew_feet_clearance = torch.sum(swing_prob * (foot_height - target_clearance).pow(2), dim=1)  # (N,)
+
+
+        forces_hist = self._contact_sensor.data.net_forces_w_history          # (N, H, B, 3)
+        feet_forces_hist = forces_hist[:, :, self._feet_ids_sensor, :]        # (N, H, 4, 3)
+        fz_hist = torch.clamp(feet_forces_hist[..., 2], min=0.0)              # (N, H, 4)
+        fz = torch.mean(fz_hist, dim=1)   # (N, 4) smoother
+        fz_scaled = torch.tanh(fz / 50.0)
+        # Reward stance having force, and swing having low force.
+        # Using soft stance_prob/swing_prob keeps it differentiable-ish and matches your von-mises smoothing.
+        rew_tracking_contacts_shaped_force = torch.sum(
+            stance_prob * fz_scaled - swing_prob * fz_scaled,
+            dim=1
+        )  # (num_envs,)
+
         rewards = {
             "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale * self.step_dt,
             "track_ang_vel_z_exp": yaw_rate_error_mapped * self.cfg.yaw_rate_reward_scale * self.step_dt,
@@ -206,6 +225,9 @@ class Rob6323Go2Env(DirectRLEnv):
             "lin_vel_z": self.rew_lin_vel_z * self.cfg.lin_vel_z_reward_scale,
             "dof_vel": self.rew_dof_vel * self.cfg.dof_vel_reward_scale,
             "ang_vel_xy": self.rew_ang_vel_xy * self.cfg.ang_vel_xy_reward_scale,
+            # Part 6.3 (new)
+            "feet_clearance": rew_feet_clearance * self.cfg.feet_clearance_reward_scale,
+            "tracking_contacts_shaped_force": rew_tracking_contacts_shaped_force * self.cfg.tracking_contacts_shaped_force_reward_scale,
         }
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
