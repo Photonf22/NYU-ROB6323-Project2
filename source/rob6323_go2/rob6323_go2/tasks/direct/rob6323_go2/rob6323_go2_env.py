@@ -177,10 +177,14 @@ class Rob6323Go2Env(DirectRLEnv):
         # Update the prev action hist (roll buffer and insert new action)
         self.last_actions = torch.roll(self.last_actions, 1, 2)
         self.last_actions[:, :, 0] = self._actions[:]
-
+        # TODO: (Alejandro, Sanchez) 12/16/2025
+        # if error is modest, reward stays high and doesn’t push hard.
         # linear velocity tracking
+        # Increase tracking sharpness by increasing the exponential “tracking_sigma” (or, equivalently, decrease sigma → sharper).
+        # tracking_sigma = 0.25
+        tracking_sigma = 0.05
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self.robot.data.root_lin_vel_b[:, :2]), dim=1)
-        lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
+        lin_vel_error_mapped = torch.exp(-lin_vel_error / tracking_sigma)
         # yaw rate tracking
         yaw_rate_error = torch.square(self._commands[:, 2] - self.robot.data.root_ang_vel_b[:, 2])
         yaw_rate_error_mapped = torch.exp(-yaw_rate_error / 0.25)
