@@ -167,7 +167,14 @@ class Rob6323Go2Env(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         self._step_contact_targets() # Update gait state
-        rew_raibert_heuristic = self._reward_raibert_heuristic()
+
+        # Raibert shaping is applied only when translational commands are non-zero to avoid biasing the policy toward in-place stepping.
+        rew_raibert_heuristic = self._reward_raibert_heuristic() # (N,)
+        cmd_speed = torch.linalg.norm(self._commands[:, :2], dim=1)
+        mask = (cmd_speed > 0.1).float()
+
+        rew_raibert_heuristic = rew_raibert_heuristic * mask
+
         # action rate penalization
         # First derivative (Current - Last)
         rew_action_rate = torch.sum(torch.square(self._actions - self.last_actions[:, :, 0]), dim=1) * (self.cfg.action_scale ** 2)

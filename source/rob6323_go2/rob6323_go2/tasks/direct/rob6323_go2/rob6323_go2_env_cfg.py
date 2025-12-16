@@ -33,7 +33,8 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     observation_space = 48 + 4  #Define the reward scales and increase observation space to include clock inputs (4 phases).
     # TODO:(Alejandro, Sanchez) 12/16/2025 lowering the tracking contacts shape force reward scale from -10.0 to -0.5 to -2.0
     #raibert_heuristic_reward_scale = -10.0
-    # Once the policy tracks commands and moves, gradually tighten it back down (more negative) to clean up foot placement.
+    # When the policy tracks commands and moves, gradually tighten it back down (more negative) to clean up foot placement.
+    # after moves and tracks, you can push it more negative (e.g., -3, -5, maybe back to -10).
     raibert_heuristic_reward_scale = -1.0 # decrease after back toward -5 … -10 to sharpen gait/placement
     # also increase contact shaping a bit if footfalls aren’t clean
     # 6.1 Update Configuration line 36 and line 37
@@ -61,7 +62,7 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     # poor steady-state tracking (losing 10 pts)
     # gait looks “stuck” or overly damped
     # action_rate_reward_scale = -0.1 <------ changed from this (before edit)
-    action_rate_reward_scale = -0.005       
+    action_rate_reward_scale = -0.01       
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 200,
