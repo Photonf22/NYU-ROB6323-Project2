@@ -189,8 +189,9 @@ class Rob6323Go2Env(DirectRLEnv):
 
         # 2. Penalize vertical velocity (z-component of base linear velocity)
         # Hint: Square the Z component of the base linear velocity.
-        self.rew_lin_vel_z = self.robot.data.root_lin_vel_b[:, 2]**2
-
+        lin_vel_z  = self.robot.data.root_lin_vel_b[:, 2]**2
+        excess = torch.clamp(torch.abs(lin_vel_z) - 0.05, min=0.0)
+        self.rew_lin_vel_z = excess**2
         # 3. Penalize high joint velocities
         # Hint: Sum the squares of all joint velocities.
         self.rew_dof_vel = torch.sum(self.robot.data.joint_vel ** 2, dim=1)
@@ -203,9 +204,10 @@ class Rob6323Go2Env(DirectRLEnv):
         # Use desired_contact_states as a soft stance probability in [0,1].
         # Swing mask: 1 - stance_prob
         stance_prob = self.desired_contact_states  # (num_envs, 4)
+        #stance_prob = 1.0 - self._contact_sensor.data.is_contact[:, self.feet_indices].float()
         swing_prob = 1.0 - stance_prob
-        target_clearance = 0.06 # can be tuned added TODO: Alejandro Sanchez
-        foot_height = foot_height = self.foot_positions_w[:, :, 2]
+        target_clearance = 0.12 # can be tuned added TODO: Alejandro Sanchez
+        foot_height = self.foot_positions_w[:, :, 2]
 
         rew_feet_clearance = torch.sum(swing_prob * (foot_height - target_clearance).pow(2), dim=1)  # (N,)
 
