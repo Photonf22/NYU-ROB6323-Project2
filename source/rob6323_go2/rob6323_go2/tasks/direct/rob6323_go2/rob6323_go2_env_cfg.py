@@ -62,7 +62,7 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     # poor steady-state tracking (losing 10 pts)
     # gait looks “stuck” or overly damped
     # action_rate_reward_scale = -0.1 <------ changed from this (before edit)
-    action_rate_reward_scale = -0.01       
+    action_rate_reward_scale = -0.001       
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 200,

@@ -42,7 +42,7 @@ class Rob6323Go2Env(DirectRLEnv):
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
         # Get specific body indices
         self._feet_ids = []
-        foot_names = ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]
+        foot_names = ["FR_foot", "FL_foot", "RR_foot", "RL_foot"]
         for name in foot_names:
             id_list, _ = self.robot.find_bodies(name)
             self._feet_ids.append(id_list[0])
@@ -247,14 +247,18 @@ class Rob6323Go2Env(DirectRLEnv):
 
         # Reward stance having force, and swing having low force.
         # Using soft stance_prob/swing_prob keeps it differentiable-ish and matches your von-mises smoothing.
+        #rew_tracking_contacts_shaped_force = torch.sum(
+        #    stance_prob * fz_scaled - swing_prob * fz_scaled,
+        #    dim=1
+        #)  # (num_envs,)
+        # bounded “contact match” score:
         rew_tracking_contacts_shaped_force = torch.sum(
-            stance_prob * fz_scaled - swing_prob * fz_scaled,
+            stance_prob * fz_scaled + (1.0 - stance_prob) * (1.0 - fz_scaled),
             dim=1
-        )  # (num_envs,)
-
+        )
         rewards = {
-            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale * self.step_dt,
-            "track_ang_vel_z_exp": yaw_rate_error_mapped * self.cfg.yaw_rate_reward_scale * self.step_dt,
+            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale, #* self.step_dt,
+            "track_ang_vel_z_exp": yaw_rate_error_mapped * self.cfg.yaw_rate_reward_scale, #* self.step_dt,
             "rew_action_rate": rew_action_rate * self.cfg.action_rate_reward_scale,
             # Note: This reward is negative (penalty) in the config
             "raibert_heuristic": rew_raibert_heuristic * self.cfg.raibert_heuristic_reward_scale, 
