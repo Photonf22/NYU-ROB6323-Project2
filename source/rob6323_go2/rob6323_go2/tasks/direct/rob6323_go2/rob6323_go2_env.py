@@ -20,7 +20,7 @@ from isaaclab.sensors import ContactSensor
 from isaaclab.markers import VisualizationMarkers
 import isaaclab.utils.math as math_utils
 
-from .rob6323_go2_env_cfg2 import Rob6323Go2EnvCfg
+from .rob6323_go2_env_cfg import Rob6323Go2EnvCfg
 
 
 class Rob6323Go2Env(DirectRLEnv):
@@ -28,7 +28,7 @@ class Rob6323Go2Env(DirectRLEnv):
 
     def __init__(self, cfg: Rob6323Go2EnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-
+        self.common_step_counter = 0
         # Joint position command (deviation from default joint positions)
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._previous_actions = torch.zeros(
@@ -238,7 +238,7 @@ class Rob6323Go2Env(DirectRLEnv):
         forces_hist = self._contact_sensor.data.net_forces_w_history          # (N,H,B,3)
         feet_ids = list(self._feet_ids_sensor)                               # ensure safe indexing
         feet_forces_hist = forces_hist[:, :, feet_ids, :]                    # (N,H,4,3)
-        fz_hist = torch.clamp(feet_forces_hist[..., 2], min=0.0)             # (N,H,4)
+        fz_hist = torch.clamp(feet_forces_hist[:, :, :, 2], min=0.0)             # (N,H,4)
 
         fz = torch.mean(fz_hist, dim=1)                                      # (N,4)
         fz = torch.nan_to_num(fz, nan=0.0, posinf=0.0, neginf=0.0)          # avoid CUDA asserts
@@ -266,6 +266,12 @@ class Rob6323Go2Env(DirectRLEnv):
             "feet_clearance": rew_feet_clearance * self.cfg.feet_clearance_reward_scale,
             "tracking_contacts_shaped_force": rew_tracking_contacts_shaped_force * self.cfg.tracking_contacts_shaped_force_reward_scale,
         }
+        #self.common_step_counter +=1
+        #if int(self.common_step_counter) % 200 == 0:
+        #    for k,v in rewards.items():
+        #        print(k, float(v.mean()))
+        #    print("total", float(rewards.mean()), "cmd_speed", float(torch.linalg.norm(self._commands[:, :2], dim=1).mean()))
+
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
         for key, value in rewards.items():
@@ -304,7 +310,12 @@ class Rob6323Go2Env(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
         # Sample new commands
-        self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
+        #self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
+        # vx only, positive forward
+        # TODO: for testing only (Alejandro, Sanchez) 12/16/2025
+        self._commands[env_ids, 0] = torch.empty(len(env_ids), device=self.device).uniform_(0.3, 1.0)
+        self._commands[env_ids, 1] = 0.0  # vy
+        self._commands[env_ids, 2] = 0.0  # yaw rate
         # Reset robot state
         joint_pos = self.robot.data.default_joint_pos[env_ids]
         joint_vel = self.robot.data.default_joint_vel[env_ids]

@@ -98,8 +98,8 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     # "base_legs" is an arbitrary key we use to group these actuators
     robot_cfg.actuators["base_legs"] = ImplicitActuatorCfg(
         joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
-        effort_limit=23.5,
-        velocity_limit=30.0,
+        effort_limit_sim=23.5,
+        velocity_limit_sim=30.0,
         stiffness=0.0,  # CRITICAL: Set to 0 to disable implicit P-gain
         damping=0.0,    # CRITICAL: Set to 0 to disable implicit D-gain
     )
