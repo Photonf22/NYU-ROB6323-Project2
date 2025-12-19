@@ -16,8 +16,10 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, FRAME_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
+#--------------------------------------------------------------------------------------------------------------
+# 2.1 Update Configuration: Adding Import
 from isaaclab.actuators import ImplicitActuatorCfg
-
+#--------------------------------------------------------------------------------------------------------------
 @configclass
 class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     # env
@@ -30,26 +32,48 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     state_space = 0
     debug_vis = True
     action_rate_reward_scale = -0.1
+    #--------------------------------------------------------------------------------------------------------------
+    # 2.1 Update Configuration
     # PD control gains
     Kp = 20.0  # Proportional gain
     Kd = 0.5   # Derivative gain
     torque_limits = 100.0  # Max torque
+    #--------------------------------------------------------------------------------------------------------------
+    # Part 3: Early Stopping (Min Base Height)
+    # Define the threshold for termination.
     base_height_min = 0.20  # Terminate if base is lower than 20cm
+    #--------------------------------------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------------------------------------
+    # Part 5: Refining the Reward Function
+    #To achieve stable and natural-looking locomotion, we need to shape the robot's behavior further. We will add penalties for:
 
-    # In Rob6323Go2EnvCfg
-
+    #- Non-flat body orientation (projected gravity).
+    #- Vertical body movement (bouncing).
+    #- Excessive joint velocities.
+    #- Body rolling and pitching (angular velocity).
     # Additional reward scales
     orient_reward_scale = -5.0
     lin_vel_z_reward_scale = -0.02
     dof_vel_reward_scale = -0.0001
     ang_vel_xy_reward_scale = -0.001
+    #--------------------------------------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------------------------------------
+    # Part 4: Raibert Heuristic (Gait Shaping)
+    # The Raibert Heuristic is a classic control strategy that places feet to stabilize velocity. 
+    # We will use it as a "teacher" reward to encourage the policy to learn proper stepping. For reference logic, see IsaacGymEnvs implementation.
+    # 4.1 Update Configuration
     observation_space = 48 + 4  # Added 4 for clock inputs
-
     raibert_heuristic_reward_scale = -10.0
+    #--------------------------------------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------------------------------------
+    # Part 6: Advanced Foot Interaction
+    # Next, we will add two critical rewards for legged locomotion: Foot Clearance (lifting feet during swing) and Contact Forces (grounding feet during stance).
+    # We will adapt the implementation from IsaacGymEnvs.
     feet_clearance_reward_scale = -30.0
     tracking_contacts_shaped_force_reward_scale = 4.0
-
-
+    #--------------------------------------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------------------------------------
+    # 2.1 Update Configuration
     # Update robot_cfg
     robot_cfg: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="/World/envs/env_.*/Robot")
     # "base_legs" is an arbitrary key we use to group these actuators
@@ -60,7 +84,7 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
         stiffness=0.0,  # CRITICAL: Set to 0 to disable implicit P-gain
         damping=0.0,    # CRITICAL: Set to 0 to disable implicit D-gain
     )
-
+    #--------------------------------------------------------------------------------------------------------------
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 200,
