@@ -44,8 +44,14 @@ class Rob6323Go2Env(DirectRLEnv):
             for key in [
                 "track_lin_vel_xy_exp",
                 "track_ang_vel_z_exp",
-                "rew_action_rate",     # <--- Added
-                "raibert_heuristic"    # <--- Added
+                "rew_action_rate",
+                "raibert_heuristic",
+                "orient",
+                "lin_vel_z",
+                "dof_vel",
+                "ang_vel_xy",
+                "feet_clearance",
+                "tracking_contacts_shaped_force"
             ]
         }
 
@@ -69,6 +75,20 @@ class Rob6323Go2Env(DirectRLEnv):
         self.clock_inputs = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
         self.desired_contact_states = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
 
+        self._feet_ids = []
+        foot_names = ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]
+        for name in foot_names:
+            id_list, _ = self.robot.find_bodies(name)
+            self._feet_ids.append(id_list[0])
+
+        # --- NEW CODE START ---
+        # Get specific body indices (CONTACT SENSOR)
+        # We must look up the IDs again using the sensor object, not the robot object
+        self._feet_ids_sensor = []
+        for name in foot_names:
+            sensor_ids, _ = self._contact_sensor.find_bodies(name)
+            self._feet_ids_sensor.append(sensor_ids[0])
+            
         # Get specific body indices
         self._base_id, _ = self._contact_sensor.find_bodies("base")
         # self._feet_ids, _ = self._contact_sensor.find_bodies(".*foot")
@@ -131,6 +151,7 @@ class Rob6323Go2Env(DirectRLEnv):
         # yaw rate tracking
         yaw_rate_error = torch.square(self._commands[:, 2] - self.robot.data.root_ang_vel_b[:, 2])
         yaw_rate_error_mapped = torch.exp(-yaw_rate_error / 0.25)
+        
         # action rate penalization
         # First derivative (Current - Last)
         rew_action_rate = torch.sum(torch.square(self._actions - self.last_actions[:, :, 0]), dim=1) * (self.cfg.action_scale ** 2)
@@ -142,18 +163,83 @@ class Rob6323Go2Env(DirectRLEnv):
         self.last_actions[:, :, 0] = self._actions[:]
         self._step_contact_targets() # Update gait state
         rew_raibert_heuristic = self._reward_raibert_heuristic()
+
+        # --- NEW LOGIC IMPLEMENTATION START ---
+
+        # 1. Penalize non-vertical orientation (projected gravity on XY plane)
+        # We take the X and Y components of the gravity vector projected into the body frame.
+        # If the robot is perfectly upright, X and Y are 0.
+        rew_orient = torch.sum(torch.square(self.robot.data.projected_gravity_b[:, :2]), dim=1)
+
+        # 2. Penalize vertical velocity (z-component of base linear velocity)
+        # Simply square the Z velocity to penalize bouncing.
+        rew_lin_vel_z = torch.square(self.robot.data.root_lin_vel_b[:, 2])
+
+        # 3. Penalize high joint velocities
+        # Sum the squares of velocities across all 12 joints.
+        rew_dof_vel = torch.sum(torch.square(self.robot.data.joint_vel), dim=1)
+
+        # 4. Penalize angular velocity in XY plane (roll/pitch)
+        # We want to minimize rolling and pitching, so we penalize the X and Y components of angular velocity.
+        rew_ang_vel_xy = torch.sum(torch.square(self.robot.data.root_ang_vel_b[:, :2]), dim=1)
+
+        # --- NEW LOGIC IMPLEMENTATION END ---
+
+        # 5. Foot Clearance Reward
+        # Calculate a target swing trajectory (triangle/bell curve based on phase)
+        # phases becomes 1.0 at the peak of the swing, 0.0 at lift-off/touch-down
+        phases = 1 - torch.abs(1.0 - torch.clip((self.foot_indices * 2.0) - 1.0, 0.0, 1.0) * 2.0)
+        
+        # Get current foot height (Z component of world position)
+        foot_height = self.foot_positions_w[:, :, 2]
+        
+        # Target height = 0.08m peak height + 0.02m foot radius offset
+        target_height = 0.08 * phases + 0.02
+        
+        # Only penalize height error during SWING phase (when desired_contact_states is 0)
+        rew_foot_clearance = torch.square(target_height - foot_height) * (1 - self.desired_contact_states)
+        rew_feet_clearance = torch.sum(rew_foot_clearance, dim=1)
+
+        # 6. Contact Forces Reward
+        # Get the net contact forces specifically for the feet
+        # Important: Use self._feet_ids_sensor here!
+        foot_forces = torch.norm(self._contact_sensor.data.net_forces_w[:, self._feet_ids_sensor, :], dim=-1)
+        
+        rew_tracking_contacts_shaped_force = torch.zeros(self.num_envs, device=self.device)
+        
+        # Penalize non-zero contact forces during the SWING phase
+        for i in range(4):
+            rew_tracking_contacts_shaped_force += - (1 - self.desired_contact_states[:, i]) * (
+                1 - torch.exp(-1 * foot_forces[:, i] ** 2 / 100.)
+            )
+        # Scale as per reference (average over feet or just sum, reference implies specific scaling)
+        # We will apply the config scale later, so we just keep the raw value here.
+        # Note: The reference code divides by 4. We will do that here to normalize.
+        rew_tracking_contacts_shaped_force = rew_tracking_contacts_shaped_force / 4.0
+
+        # --- NEW IMPLEMENTATION END ---
+
         # Add to rewards dict
         rewards = {
-            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale, # Removed step_dt
-            "track_ang_vel_z_exp": yaw_rate_error_mapped * self.cfg.yaw_rate_reward_scale, # Removed step_dt
+            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale,
+            "track_ang_vel_z_exp": yaw_rate_error_mapped * self.cfg.yaw_rate_reward_scale,
             "rew_action_rate": rew_action_rate * self.cfg.action_rate_reward_scale,
             "raibert_heuristic": rew_raibert_heuristic * self.cfg.raibert_heuristic_reward_scale,
+            "orient": rew_orient * self.cfg.orient_reward_scale,
+            "lin_vel_z": rew_lin_vel_z * self.cfg.lin_vel_z_reward_scale,
+            "dof_vel": rew_dof_vel * self.cfg.dof_vel_reward_scale,
+            "ang_vel_xy": rew_ang_vel_xy * self.cfg.ang_vel_xy_reward_scale,
+            # New rewards
+            "feet_clearance": rew_feet_clearance * self.cfg.feet_clearance_reward_scale,
+            "tracking_contacts_shaped_force": rew_tracking_contacts_shaped_force * self.cfg.tracking_contacts_shaped_force_reward_scale,
         }
-    
+        
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+        
         # Logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
+            
         return reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
