@@ -20,7 +20,7 @@ from isaaclab.sensors import ContactSensor
 from isaaclab.markers import VisualizationMarkers
 import isaaclab.utils.math as math_utils
 import numpy as np 
-from .rob6323_go2_env_cfg3 import Rob6323Go2EnvCfg
+from .rob6323_go2_env_cfg import Rob6323Go2EnvCfg
 
 
 class Rob6323Go2Env(DirectRLEnv):
@@ -37,15 +37,6 @@ class Rob6323Go2Env(DirectRLEnv):
 
         # X/Y linear velocity and yaw angular velocity commands
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
-
-        # Logging
-        self._episode_sums = {
-            key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-            for key in [
-                "track_lin_vel_xy_exp",
-                "track_ang_vel_z_exp"
-            ]
-        }
 
         # Get specific body indices
         self._feet_ids = []
@@ -88,7 +79,7 @@ class Rob6323Go2Env(DirectRLEnv):
                 "dof_vel",
                 "ang_vel_xy",
                 "feet_clearance",
-                #"tracking_contacts_shaped_force",
+                "tracking_contacts_shaped_force",
             ]
         }
         # variables needed for action rate penalization
@@ -298,7 +289,7 @@ class Rob6323Go2Env(DirectRLEnv):
             "dof_vel": rew_dof_vel * self.cfg.dof_vel_reward_scale,
             "ang_vel_xy": rew_ang_vel_xy * self.cfg.ang_vel_xy_reward_scale,
             "feet_clearance": rew_feet_clearance * self.cfg.feet_clearance_reward_scale,
-            #"tracking_contacts_shaped_force": tracking_contacts_shaped_force * self.cfg.tracking_contacts_shaped_force_reward_scale,
+            "tracking_contacts_shaped_force": tracking_contacts_shaped_force * self.cfg.tracking_contacts_shaped_force_reward_scale,
         }
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
