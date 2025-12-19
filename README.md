@@ -97,6 +97,48 @@ ssh burst "squeue -u $USER"
 ```
 Be aware that jobs can be canceled and requeued by the scheduler or underlying provider policies when higher-priority work preempts your resources, which is normal behavior on shared clusters using preemptible partitions.
 
+##  Launch Training Locally: When NYU HPC Greene is unreliable
+
+1)
+- Follow the steps on this website to install Isaac and IsaacLab locally on either Linux or Windows OS: https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/pip_installation.html
+- Both OS's were followed and installed, but it was easier to install on Ubuntu 24.04 with CUDA 12 than on windows
+- Make sure to install the Isaac Checker App to make sure your PC meets the requirements. I noticed a big slow down on graphics and lagging when it was time to simulate the robot. Thus having 64GB of RAM and a good CPU/GPU is a must.
+- Isaac Sim was ran on a system with NVIDIA 4090 RTX GPU, Intel I9-13700K, 64GB RAM. 
+2) 
+- Linux: Ubuntu 24.04: Isaac was installed on Linux using Conda. Please use python 3.11 and CUDA 12, or else Isaac won't run properly. I had different versions of python installed which is why Python3.11 was called in the environment to specifically use Python3.11.
+```
+conda create --name env_isaaclab python=3.11
+conda activate env_isaaclab
+python3.11 -m pip install -e ~/rob6323_go2_project/source/rob6323_go2
+python3.11 ~/rob6323_go2_project/scripts/rsl_rl/train.py \
+  --task=Template-Rob6323-Go2-Direct-v0 \
+  --headless
+LATEST_DIR=$(ls -td -- ~/rob6323_go2_project/logs/rsl_rl/go2_flat_direct/*/ | head -n 1)
+python3.11 ~/rob6323_go2_project/scripts/rsl_rl/play.py --task=Template-Rob6323-Go2-Direct-v0 --checkpoint "$LATEST_DIR/model_499.pt" --video --video_length 1000   --headless
+
+```
+- Windows 11: Did not use Conda but used normal python, had to download python3.11 from the python.org website hence Isaac does not like any other versions. Since the term '~' does not work on power shell I had to manually put the entire full path everytime. Remeber Isaac was installed on the python environment so having to call "Isaac" module on the terminal is not needed. You only need to call python and let it handle the rest.
+```
+python -m pip install -e C:\Users\<User Name>\rob6323_go2_project\source\rob6323_go2
+
+python C:\Users\<User Name>\rob6323_go2_project\scripts\rsl_rl/train.py --task=Template-Rob6323-Go2-Direct-v0  --headless
+
+- Please change 2025-12-18_18-05-26 with the current job or batch that was created by the training script. If you want to be fancy on Powershell then do the following to grab the latest folder according to creation time.
+#---------------------------------------------------------------------------------------------------
+# Define the path you want to check (e.g., current directory)
+# instead of "C:\temp" it would be something like C:\Users\<User Name>\rob6323_go2_project\logs\rsl_rl\go2_flat_direct
+$Path = "C:\temp" 
+
+# Get the most recent folder based on CreationTime
+$LatestFolder = Get-ChildItem -Path $Path -Directory | Sort-Object CreationTime -Descending | Select-Object -First 1
+
+# Display the full path of the latest folder
+Write-Output "The latest folder is: $($LatestFolder.FullName)"
+#---------------------------------------------------------------------------------------------------
+$LATEST_DIR="C:\Users\<User Name>\rob6323_go2_project\logs\rsl_rl\go2_flat_direct\2025-12-18_18-05-26"
+
+python C:\Users\<User Name>\rob6323_go2_project\scripts\rsl_rl\play.py --task=Template-Rob6323-Go2-Direct-v0 --checkpoint "$LATEST_DIR/model_499.pt" --video --video_length 1000   --headless
+```
 ## Where to find results
 
 - When a job completes, logs are written under logs in your project clone on Greene in the structure logs/[job_id]/rsl_rl/go2_flat_direct/[date_time]/.  
