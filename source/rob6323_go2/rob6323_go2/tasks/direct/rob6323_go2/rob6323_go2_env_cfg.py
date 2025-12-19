@@ -15,11 +15,13 @@ from isaaclab.utils import configclass
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.markers import VisualizationMarkersCfg
-from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, FRAME_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
-#--------------------------------------------------------------------------------------------------------------
+from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, FRAME_MARKER_CFG
+from isaaclab.markers.config import GREEN_ARROW_X_MARKER_CFG
+
 # 2.1 Update Configuration: Adding Import
 from isaaclab.actuators import ImplicitActuatorCfg
-#--------------------------------------------------------------------------------------------------------------
+
+
 @configclass
 class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     # env
@@ -32,47 +34,47 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     state_space = 0
     debug_vis = True
     action_rate_reward_scale = -0.1
-    #--------------------------------------------------------------------------------------------------------------
+
     # 2.1 Update Configuration
     # PD control gains
     Kp = 20.0  # Proportional gain
     Kd = 0.5   # Derivative gain
     torque_limits = 100.0  # Max torque
-    #--------------------------------------------------------------------------------------------------------------
+
     # Part 3: Early Stopping (Min Base Height)
     # Define the threshold for termination.
     base_height_min = 0.20  # Terminate if base is lower than 20cm
-    #--------------------------------------------------------------------------------------------------------------
-    #--------------------------------------------------------------------------------------------------------------
-    # Part 5: Refining the Reward Function
-    #To achieve stable and natural-looking locomotion, we need to shape the robot's behavior further. We will add penalties for:
 
-    #- Non-flat body orientation (projected gravity).
-    #- Vertical body movement (bouncing).
-    #- Excessive joint velocities.
-    #- Body rolling and pitching (angular velocity).
+    # Part 5: Refining the Reward Function
+    # To achieve stable and natural-looking locomotion, we need to shape the
+    # robot's behavior further. We will add penalties for:
+    # - Non-flat body orientation (projected gravity).
+    # - Vertical body movement (bouncing).
+    # - Excessive joint velocities.
+    # - Body rolling and pitching (angular velocity).
     # Additional reward scales
     orient_reward_scale = -5.0
     lin_vel_z_reward_scale = -0.02
     dof_vel_reward_scale = -0.0001
     ang_vel_xy_reward_scale = -0.001
-    #--------------------------------------------------------------------------------------------------------------
-    #--------------------------------------------------------------------------------------------------------------
+
     # Part 4: Raibert Heuristic (Gait Shaping)
-    # The Raibert Heuristic is a classic control strategy that places feet to stabilize velocity. 
-    # We will use it as a "teacher" reward to encourage the policy to learn proper stepping. For reference logic, see IsaacGymEnvs implementation.
+    # The Raibert Heuristic is a classic control strategy that places feet to
+    # stabilize velocity. 
+    # We will use it as a "teacher" reward to encourage the policy to learn
+    # proper stepping. For reference logic, see IsaacGymEnvs implementation.
     # 4.1 Update Configuration
     observation_space = 48 + 4  # Added 4 for clock inputs
     raibert_heuristic_reward_scale = -10.0
-    #--------------------------------------------------------------------------------------------------------------
-    #--------------------------------------------------------------------------------------------------------------
+
     # Part 6: Advanced Foot Interaction
-    # Next, we will add two critical rewards for legged locomotion: Foot Clearance (lifting feet during swing) and Contact Forces (grounding feet during stance).
+    # Next, we will add two critical rewards for legged locomotion:
+    # Foot Clearance (lifting feet during swing) and Contact Forces
+    # (grounding feet during stance).
     # We will adapt the implementation from IsaacGymEnvs.
     feet_clearance_reward_scale = -30.0
     tracking_contacts_shaped_force_reward_scale = 4.0
-    #--------------------------------------------------------------------------------------------------------------
-    #--------------------------------------------------------------------------------------------------------------
+
     # 2.1 Update Configuration
     # Update robot_cfg
     robot_cfg: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="/World/envs/env_.*/Robot")
@@ -84,7 +86,7 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
         stiffness=0.0,  # CRITICAL: Set to 0 to disable implicit P-gain
         damping=0.0,    # CRITICAL: Set to 0 to disable implicit D-gain
     )
-    #--------------------------------------------------------------------------------------------------------------
+
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 200,
@@ -114,19 +116,24 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     robot_cfg: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=4.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096,
+                                                     env_spacing=4.0,
+                                                     replicate_physics=True)
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
-        prim_path="/World/envs/env_.*/Robot/.*", history_length=3, update_period=0.005, track_air_time=True
+        prim_path="/World/envs/env_.*/Robot/.*", history_length=3,
+        update_period=0.005, track_air_time=True
     )
     goal_vel_visualizer_cfg: VisualizationMarkersCfg = GREEN_ARROW_X_MARKER_CFG.replace(
         prim_path="/Visuals/Command/velocity_goal"
     )
-    """The configuration for the goal velocity visualization marker. Defaults to GREEN_ARROW_X_MARKER_CFG."""
+    """The configuration for the goal velocity visualization marker. 
+    Defaults to GREEN_ARROW_X_MARKER_CFG."""
 
     current_vel_visualizer_cfg: VisualizationMarkersCfg = BLUE_ARROW_X_MARKER_CFG.replace(
         prim_path="/Visuals/Command/velocity_current"
     )
-    """The configuration for the current velocity visualization marker. Defaults to BLUE_ARROW_X_MARKER_CFG."""
+    """The configuration for the current velocity visualization marker. 
+    Defaults to BLUE_ARROW_X_MARKER_CFG."""
 
     # Set the scale of the visualization markers to (0.5, 0.5, 0.5)
     goal_vel_visualizer_cfg.markers["arrow"].scale = (0.5, 0.5, 0.5)
