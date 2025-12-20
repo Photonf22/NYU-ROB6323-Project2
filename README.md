@@ -207,3 +207,17 @@ $LATEST_DIR="C:\Users\<User Name>\rob6323_go2_project\logs\rsl_rl\go2_flat_direc
 
 python C:\Users\<User Name>\rob6323_go2_project\scripts\rsl_rl\play.py --task=Template-Rob6323-Go2-Direct-v0 --checkpoint "$LATEST_DIR/model_499.pt" --video --video_length 1000   --headless
 ```
+
+Documentation of changes (10 pts): top-level README.md summarizing each major addition, rationale, and reproduction steps (including exact command lines and seeds).
+# Command to run training of policy inside of rob6323_go2_project which shows video length, video interval, max_iterations and seed.
+```
+python C:\Users\<User Name>\rob6323_go2_project\scripts\rsl_rl/train.py --task=Template-Rob6323-Go2-Direct-v0  --headless --video_length=600 --video_interval=6000 --seed=42 --max_iterations=4000
+
+python C:\Users\asanc\git\rob6323_go2_project\scripts\rsl_rl\play.py --task=Template-Rob6323-Go2-Direct-v0 --checkpoint "$LATEST_DIR/model_3999.pt" --video --video_length 6000   --headless
+```
+# Summary of Code changes: Followed Tutorial at link : https://github.com/Photonf22/rob6323_go2_project/blob/master/tutorial/tutorial.md
+Each section was added to the code and tested to make sure of stability of the robot upon each addition. 
+Comments were added to code to showcase what section of the tutorial the code belongs to.
+All commits show any additions to the code. 
+The submission code resides in : C:\Users\asanc\git\rob6323_go2_project\source\rob6323_go2\rob6323_go2\tasks\direct\rob6323_go2
+The folder named C:\Users\<User Name>\rob6323_go2_project\source\rob6323_go2\rob6323_go2\tasks\direct\rob6323_go2\different_way_approach_needs_work , shows what was attempted before on top of the tutorial. The code did not work and much more time was needed to make it work with the additional rewards added. This folder is not what was submitted but was what attempted and was not working to show that we attempted a different approach that did not work. 
