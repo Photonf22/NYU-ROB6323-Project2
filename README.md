@@ -221,3 +221,30 @@ Comments were added to code to showcase what section of the tutorial the code be
 All commits show any additions to the code. 
 The submission code resides in : C:\Users\asanc\git\rob6323_go2_project\source\rob6323_go2\rob6323_go2\tasks\direct\rob6323_go2
 The folder named C:\Users\<User Name>\rob6323_go2_project\source\rob6323_go2\rob6323_go2\tasks\direct\rob6323_go2\different_way_approach_needs_work , shows what was attempted before on top of the tutorial. The code did not work and much more time was needed to make it work with the additional rewards added. This folder is not what was submitted but was what attempted and was not working to show that we attempted a different approach that did not work. 
+
+
+[//]: # "Thanks for your contribution.  To make life of the reviewers easier,"
+[//]: # "please give this pull request a meaningful title and provide the"
+[//]: # "requested information below."
+
+## Description
+
+[//]: # "Description of what you did.  If it is more complex, consider to add a"
+[//]: # "'Summary' section."
+We trained a Unitree Go2 walking policy robot through Isaac Lab , using PPO and started from a base weak policy that only rewarded linear and yaw velocity tracking. We added rew_action_rate, raibert_heuristic, orient, lin_vel_z, dof_vel, ang_vel_xy, feet_clearance, and tracking_contacts_shaped_force to the main rewards to stabilize the robot and as well track other movements of it and apply the proper rewards. We applied the following rewards to our policy and then followed the steps to train through HPC but due to the issues with it. We decided it would be faster to train it locally. The steps to train the program locally have been added to the README.md file and the title is "Launch Training Locally: When NYU HPC Greene is unreliable". We added the steps to run the program locally in both Linux and Windows operating systems. Upon training, the policy was simulated through Isaac-sim and a video was given at the end of how our policy behaved by applying it to a simulation of the unitree go2 robot. 
+
+## How I Tested
+
+[//]: # "Explain how you tested your changes"
+We tested the changes by adding one section at a time and training it to make sure the robot was still stable and working. We also used TensorBoard to visualize the rewards vs epochs to see if it was behaving as it should. We did this for every new reward that was added and simulated the robot accordingly. We also kept track of all our commits on a remote branch to be able to backtrack if needed. 
+
+## I fulfilled the following requirements
+
+[//]: # "Please make sure you followed these steps before requesting a review."
+[//]: # "Check the boxes in the list below, when done."
+
+- [//] All new code is formatted according to our style guide (for C++ run clang-format, for Python, run flake8 and fix all warnings).
+- [//] All new functions/classes are documented and existing documentation is updated according to changes.
+- [//] No commented code from testing/debugging is kept (unless there is a good reason to keep it).
+
+
