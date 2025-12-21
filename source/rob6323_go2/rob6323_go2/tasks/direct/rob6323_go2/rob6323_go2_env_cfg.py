@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
-
+import torch
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg
@@ -17,10 +17,10 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, FRAME_MARKER_CFG
 from isaaclab.markers.config import GREEN_ARROW_X_MARKER_CFG
-
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 # 2.1 Update Configuration: Adding Import
 from isaaclab.actuators import ImplicitActuatorCfg
-
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
 
 @configclass
 class Rob6323Go2EnvCfg(DirectRLEnvCfg):
@@ -34,7 +34,8 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
     state_space = 0
     debug_vis = True
     action_rate_reward_scale = -0.1
-
+    # Extra Credit
+    
     # 2.1 Update Configuration
     # PD control gains
     Kp = 20.0  # Proportional gain
@@ -99,19 +100,38 @@ class Rob6323Go2EnvCfg(DirectRLEnvCfg):
             restitution=0.0,
         ),
     )
+    # extra credit!
+    # Added from first link provided by TA
+    # we add a height scanner for perceptive locomotion
+    height_scanner = RayCasterCfg(
+        prim_path="/World/envs/env_.*/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+    # extra credit!
+    # Added from first link provided by TA
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        terrain_type="plane",
+        terrain_type="generator",
+        terrain_generator=ROUGH_TERRAINS_CFG,
+        max_init_terrain_level=9,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
             static_friction=1.0,
             dynamic_friction=1.0,
-            restitution=0.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+            project_uvw=True,
         ),
         debug_vis=False,
     )
+    
     # robot(s)
     robot_cfg: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 

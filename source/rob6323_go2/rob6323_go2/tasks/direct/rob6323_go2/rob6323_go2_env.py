@@ -20,7 +20,7 @@ from isaaclab.markers import VisualizationMarkers
 import isaaclab.utils.math as math_utils
 import numpy as np
 from .rob6323_go2_env_cfg import Rob6323Go2EnvCfg
-
+from isaaclab.sensors import ContactSensor, RayCaster
 
 class Rob6323Go2Env(DirectRLEnv):
     cfg: Rob6323Go2EnvCfg
@@ -74,6 +74,10 @@ class Rob6323Go2Env(DirectRLEnv):
         self.Kd = torch.tensor(
             [cfg.Kd] * 12, device=self.device).unsqueeze(0).repeat(
                 self.num_envs, 1)
+                    # --- actuator friction randomization params (per env, per joint) ---
+        self.mu_v = torch.zeros(self.num_envs, 12, device=self.device)  # viscous coeff
+        self.F_s  = torch.zeros(self.num_envs, 12, device=self.device)  # stiction coeff
+
         self.motor_offsets = torch.zeros(self.num_envs, 12, device=self.device)
         self.torque_limits = cfg.torque_limits
 
@@ -259,6 +263,11 @@ class Rob6323Go2Env(DirectRLEnv):
         self.robot = Articulation(self.cfg.robot_cfg)
         self._contact_sensor = ContactSensor(self.cfg.contact_sensor)
         # add ground plane
+        if isinstance(self.cfg, Rob6323Go2EnvCfg):
+            # we add a height scanner for perceptive locomotion
+            self._height_scanner = RayCaster(self.cfg.height_scanner)
+            self.scene.sensors["height_scanner"] = self._height_scanner
+
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self._terrain = self.cfg.terrain.class_type(self.cfg.terrain)
@@ -284,7 +293,7 @@ class Rob6323Go2Env(DirectRLEnv):
         
     def _apply_action(self) -> None:
         # Compute PD torques
-        torques = torch.clip(
+        tau_pd  = torch.clip(
             (
                 self.Kp * (
                     self.desired_joint_pos 
@@ -295,13 +304,28 @@ class Rob6323Go2Env(DirectRLEnv):
             -self.torque_limits,
             self.torque_limits,
         )
+        # --- actuator friction model (per assignment) ---
+        qd = self.robot.data.joint_vel  # (N,12)
+        tau_stiction = self.F_s * torch.tanh(qd / 0.1)  # (N,12)
+        tau_viscous  = self.mu_v * qd                   # (N,12)
+        tau_friction = tau_stiction + tau_viscous
+        # subtract friction from PD output
+        torques = tau_pd - tau_friction
+        # clip to limits and apply
         # Apply torques to the robot
+        torques = torch.clip(torques, -self.torque_limits, self.torque_limits)
         self.robot.set_joint_effort_target(torques)
 
     # 4.6 Integrate into Observations and Rewards
     # Finally, expose the clock inputs to the policy and add the reward term.
     def _get_observations(self) -> dict:
         self._previous_actions = self._actions.clone()
+        # extra credit!
+        # Added from first link provided by TA
+        if isinstance(self.cfg, Rob6323Go2EnvCfg):
+            height_data = (
+                self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - self._height_scanner.data.ray_hits_w[..., 2] - 0.5
+            ).clip(-1.0, 1.0)
         obs = torch.cat(
             [
                 tensor
@@ -385,6 +409,7 @@ class Rob6323Go2Env(DirectRLEnv):
             self.robot.data.root_ang_vel_b[:, :2] ** 2, dim=1)
 
         tracking_contacts_shaped_force = self._reward_tracking_contacts_shaped_force()
+
         rewards = {
             "track_lin_vel_xy_exp": lin_vel_error_mapped *
             self.cfg.lin_vel_reward_scale,
@@ -526,6 +551,10 @@ class Rob6323Go2Env(DirectRLEnv):
         extras["Episode_Termination/time_out"] = torch.count_nonzero(
             self.reset_time_outs[env_ids]).item()
         self.extras["log"].update(extras)
+        # --- randomize actuator friction per episode (per env, per joint) ---
+        self.mu_v[env_ids] = torch.empty((len(env_ids), 12), device=self.device).uniform_(0.0, 0.3)
+        self.F_s[env_ids]  = torch.empty((len(env_ids), 12), device=self.device).uniform_(0.0, 2.5)
+
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         # set visibility of markers
